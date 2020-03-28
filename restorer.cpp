@@ -123,7 +123,7 @@ void replaceAll(std::string &str, const std::string &from, const std::string &to
     }
 }
 
-void launchEvince(std::string pdfs)
+decltype(auto) launchEvince(std::string pdfs)
 {
     std::cout << "restoring last evince session:" << std::endl;
     std::cout << "pdfs:" << pdfs << std::endl;
@@ -139,6 +139,7 @@ void launchEvince(std::string pdfs)
         system(pdfs.c_str());
     }
     std::cout << "restored evince windows closed" << std::endl;
+    return Clock::now();
 }
 
 void launchAndLog(std::chrono::seconds timeOut, const char *path)
@@ -160,13 +161,13 @@ void launchAndLog(std::chrono::seconds timeOut, const char *path)
         idx ^= 1;
         std::this_thread::sleep_for(timeOut);
     }
-    if (Clock::now() - logs[idx ^ 1]._logTime >= timeOut)
+    if (logs[idx]._logTime < logs[idx ^ 1]._logTime)
     {
-        writeOpenedPdfs(path, logs[idx ^ 1]._pdfs);
+        writeOpenedPdfs(path, logs[idx]._pdfs);
     }
     else
     {
-        writeOpenedPdfs(path, logs[idx]._pdfs);
+        writeOpenedPdfs(path, logs[idx ^ 1]._pdfs);
     }
     return;
 }
@@ -174,7 +175,7 @@ void launchAndLog(std::chrono::seconds timeOut, const char *path)
 int main()
 {
     const char logData[]{"./logData.txt"};
-    const auto timeOut = 10s;
+    const auto timeOut = 15s;
     launchAndLog(timeOut, logData);
     return 0;
 }
