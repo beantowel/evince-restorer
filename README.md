@@ -11,7 +11,7 @@ Use the application launcher to start the program, it will work until the last w
 ## Install
 
 Clone or download the project to the place you want to put the program:
-`git clone https://github.com/beantowel/evince-restorer`
+`git clone https://github.com/beantowel/evince-restorer.git`
 
 change into the directory:
 `cd evince-restorer`
