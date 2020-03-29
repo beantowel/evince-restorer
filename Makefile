@@ -1,5 +1,5 @@
 CC := g++
-SRC := restorer
+SRC := evince-restorer
 TEMPLATE := evince-restorer.template
 DESKTOP := ~/.local/share/applications/evince-restorer.desktop
 

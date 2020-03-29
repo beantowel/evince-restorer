@@ -1,18 +1,24 @@
-
 #include <cstdio>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <array>
+#include <vector>
 #include <chrono>
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 #include <future>
 #include <thread>
+#include <signal.h>
+#include <unistd.h>
 using namespace std::chrono_literals;
 
 using Clock = std::chrono::steady_clock;
+
+const char logData[]{"./logData.txt"};
+const auto timeOut = 15s;
 
 std::string exec(const char *cmd)
 {
@@ -128,10 +134,56 @@ void launchAndLog(std::chrono::seconds timeOut, const char *path)
     return;
 }
 
+std::vector<int> readPids(const std::string &s)
+{
+    std::vector<int> pids;
+    int x;
+    std::stringstream ss{s};
+    while ((ss >> x))
+    {
+        pids.push_back(x);
+    }
+    return pids;
+}
+
+void sighandler(int signum)
+{
+    std::cout << "Signal: " << signum << std::endl;
+    writeOpenedPdfs(logData, getOpenedPdfs());
+    auto eviPids = readPids(exec("pidof evince"));
+    for (auto &v : eviPids)
+    {
+        std::cout << "Killing: " << v << std::endl;
+        kill(v, SIGINT);
+    }
+    exit(signum);
+}
+
+void detectAndKill()
+{
+    auto resPids = readPids(exec("pidof evince-restorer"));
+    if (resPids.size() > 1)
+    {
+        auto thisPid = getpid();
+        for (auto &v : resPids)
+        {
+            std::cout << "detected restorer: " << v << std::endl;
+            if (v != thisPid)
+            {
+                std::cout << "send kill: " << v << std::endl;
+                kill(v, SIGTERM);
+            }
+        }
+        exit(0);
+    }
+    return;
+}
+
 int main()
 {
-    const char logData[]{"./logData.txt"};
-    const auto timeOut = 15s;
+    detectAndKill();
+    signal(SIGINT, sighandler);
+    signal(SIGTERM, sighandler);
     launchAndLog(timeOut, logData);
     return 0;
 }

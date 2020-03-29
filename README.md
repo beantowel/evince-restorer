@@ -6,7 +6,9 @@ The evince-restorer comes to rescue those. The program records the documents ope
 
 ## Usage
 
-Use the application launcher to start the program, it will work until the last window of evince was closed.
+Use the application launcher to start the program, it will work until the last window of evince was closed. You can stop the session by running (clicking the launcher) the program again or manually close the evince windows.
+
+It works like a naive tab manager, you click to launch and restore the last session, then you open or close the windows like tabs in a web-browser. Once the you've finished, click again to close all the tabs.
 
 ## Install
 
