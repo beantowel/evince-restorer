@@ -20,6 +20,9 @@ using Clock = std::chrono::steady_clock;
 
 const char logData[]{"./logData.txt"};
 const auto timeOut = 15s;
+static std::array<std::string, 2> logs;
+static unsigned int idx = 0;
+static bool fastReopen = false;
 
 std::string exec(const char *cmd) {
     std::array<char, 128> buffer;
@@ -95,21 +98,28 @@ void launchEvince(std::string pdfs) {
     return;
 }
 
-void launchAndLog(std::chrono::seconds timeOut, const char *path) {
-    auto pdfs = getOpenedPdfs(path);
-    auto fut = std::async(std::launch::async, launchEvince, pdfs);
-    std::array<std::string, 2> logs;
-    unsigned int idx = 0;
+decltype(auto) restore(const char *path) {
+    auto pdfs = getOpenedPdfs();
+    auto savedPdfs = getOpenedPdfs(path);
+    if (pdfs.size() == 0 || savedPdfs.size() > 0) {
+        return savedPdfs;
+    } else {
+        return pdfs;
+    }
+}
+
+void log(std::chrono::seconds timeOut, const char *path, std::string &&pdfs) {
+    std::future<void> reopenFut;
     logs[0] = std::move(pdfs);
     logs[1] = logs[0];
-    while (fut.wait_for(timeOut) != std::future_status::ready) {
-        logs[idx] = std::move(getOpenedPdfs());
-        idx ^= 1;
-    }
     for (pdfs = getOpenedPdfs(); pdfs.size() > 0; pdfs = getOpenedPdfs()) {
         logs[idx] = std::move(pdfs);
         idx ^= 1;
         std::this_thread::sleep_for(timeOut);
+        if (fastReopen) {
+            fastReopen = false;
+            reopenFut = std::async(std::launch::async, launchEvince, logs[idx]);
+        }
     }
     writeOpenedPdfs(path, logs[idx]);
     return;
@@ -125,15 +135,28 @@ std::vector<int> readPids(const std::string &s) {
     return pids;
 }
 
-void sighandler(int signum) {
+void intHandler(int signum) {
     std::cout << "Signal: " << signum << std::endl;
-    writeOpenedPdfs(logData, getOpenedPdfs());
+    auto pdfs = getOpenedPdfs();
+    writeOpenedPdfs(logData, pdfs);
     auto eviPids = readPids(exec("pidof evince"));
     for (auto &v : eviPids) {
         std::cout << "Killing: " << v << std::endl;
         kill(v, SIGINT);
     }
-    exit(signum);
+    exit(0);
+}
+
+void termHandler(int signum) {
+    std::cout << "Signal: " << signum << std::endl;
+    auto pdfs = getOpenedPdfs();
+    if (pdfs.size() > 0) {
+        // store and close session
+        intHandler(SIGINT);
+    } else {
+        // fast reopen
+        fastReopen = true;
+    }
 }
 
 void detectAndKill() {
@@ -154,8 +177,10 @@ void detectAndKill() {
 
 int main() {
     detectAndKill();
-    signal(SIGINT, sighandler);
-    signal(SIGTERM, sighandler);
-    launchAndLog(timeOut, logData);
+    signal(SIGINT, intHandler);
+    signal(SIGTERM, termHandler);
+    auto pdfs = restore(logData);
+    auto fut = std::async(std::launch::async, launchEvince, pdfs);
+    log(timeOut, logData, std::move(pdfs));
     return 0;
 }
