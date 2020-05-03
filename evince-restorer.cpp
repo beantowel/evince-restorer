@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <fstream>
 #include <future>
@@ -20,9 +22,9 @@ using Clock = std::chrono::steady_clock;
 
 const char logData[]{"./logData.txt"};
 const auto timeOut = 15s;
+
 static std::array<std::string, 2> logs;
 static unsigned int idx = 0;
-static bool fastReopen = false;
 
 std::string exec(const char *cmd) {
     std::array<char, 128> buffer;
@@ -37,10 +39,38 @@ std::string exec(const char *cmd) {
     return result;
 }
 
+std::vector<int> readPids(const std::string &s) {
+    std::vector<int> pids;
+    int x;
+    std::stringstream ss{s};
+    while ((ss >> x)) {
+        pids.push_back(x);
+    }
+    return pids;
+}
+
+void replaceAll(std::string &str, const std::string &from,
+                const std::string &to) {
+    size_t start_pos = 0;
+    while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+        str.replace(start_pos, from.length(), to);
+        start_pos +=
+            to.length(); // Handles case where 'to' is a substring of 'from'
+    }
+}
+
+static inline void rtrim(std::string &s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(),
+                         [](int ch) { return !std::isspace(ch); })
+                .base(),
+            s.end());
+}
+
 std::string getOpenedPdfs() {
     std::string cmd{
-        "lsof -p 0,$(pidof evince | sed \"s/ /,/g\") | grep -o \"/.*.pdf$\""};
+        "lsof -p 0,$(pidof evince | sed \"s| |,|g\") | grep -o \"/.*.pdf$\""};
     auto s = exec(cmd.c_str());
+    rtrim(s);
     std::cout << "getOpened:" << s << std::endl;
     return s;
 }
@@ -66,36 +96,31 @@ void writeOpenedPdfs(const char *path, const std::string &pdfs) {
     std::ofstream logFile(path);
     if (logFile.is_open()) {
         logFile << pdfs;
-        std::cout << "written:" << pdfs << std::endl;
+        std::cout << "written:\n[[[" << pdfs << "]]]\n";
     } else {
         std::cout << "can't open file " << path << std::endl;
-    }
-    return;
-}
-
-void replaceAll(std::string &str, const std::string &from,
-                const std::string &to) {
-    size_t start_pos = 0;
-    while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-        str.replace(start_pos, from.length(), to);
-        start_pos +=
-            to.length(); // Handles case where 'to' is a substring of 'from'
     }
 }
 
 void launchEvince(std::string pdfs) {
     std::cout << "restoring last evince session:" << std::endl;
-    std::cout << "pdfs:" << pdfs << std::endl;
+    std::cout << "pdfs:\n[[[" << pdfs << "]]]\n";
     if (pdfs.size() == 0) {
-        system("evince");
+        system("evince &");
+        std::cout << "empty session" << std::endl;
     } else {
-        replaceAll(pdfs, "\n", "\' \'");
-        pdfs = "evince \'" + pdfs + "\'";
-        std::cout << "calling:" << pdfs << std::endl;
+        replaceAll(pdfs, "\n", "\' & evince \'");
+        pdfs = "evince \'" + pdfs + "\' &";
+        std::cout << "calling:\n" << pdfs << std::endl;
         system(pdfs.c_str());
     }
-    std::cout << "restored evince windows closed" << std::endl;
-    return;
+    auto openedPdfs = getOpenedPdfs();
+    while (openedPdfs.size() <= 0) {
+        openedPdfs = getOpenedPdfs();
+        std::this_thread::sleep_for(0.5s);
+    }
+    std::cout << "at least one evince windows launched, openedPdfs:\n"
+              << openedPdfs << std::endl;
 }
 
 decltype(auto) restore(const char *path) {
@@ -109,53 +134,48 @@ decltype(auto) restore(const char *path) {
 }
 
 void log(std::chrono::seconds timeOut, const char *path, std::string &&pdfs) {
-    std::future<void> reopenFut;
     logs[0] = std::move(pdfs);
     logs[1] = logs[0];
+    std::mutex mtx;
+    std::unique_lock<std::mutex> lck(mtx);
     for (pdfs = getOpenedPdfs(); pdfs.size() > 0; pdfs = getOpenedPdfs()) {
         logs[idx] = std::move(pdfs);
         idx ^= 1;
         std::this_thread::sleep_for(timeOut);
-        if (fastReopen) {
-            fastReopen = false;
-            reopenFut = std::async(std::launch::async, launchEvince, logs[idx]);
-        }
     }
     writeOpenedPdfs(path, logs[idx]);
-    return;
-}
-
-std::vector<int> readPids(const std::string &s) {
-    std::vector<int> pids;
-    int x;
-    std::stringstream ss{s};
-    while ((ss >> x)) {
-        pids.push_back(x);
-    }
-    return pids;
 }
 
 void intHandler(int signum) {
-    std::cout << "Signal: " << signum << std::endl;
+    std::cout << "signal: " << signum << std::endl;
     auto pdfs = getOpenedPdfs();
     writeOpenedPdfs(logData, pdfs);
     auto eviPids = readPids(exec("pidof evince"));
     for (auto &v : eviPids) {
-        std::cout << "Killing: " << v << std::endl;
-        kill(v, SIGINT);
+        std::cout << "detected evince: " << v << std::endl;
+        std::cout << "killing: " << v << std::endl;
+        kill(v, SIGTERM);
+    }
+    eviPids = readPids(exec("pidof evince"));
+    for (auto &v : eviPids) {
+        std::cout << "detected evince: " << v << std::endl;
+        std::cout << "killing: " << v << std::endl;
+        kill(v, SIGKILL);
     }
     exit(0);
 }
 
 void termHandler(int signum) {
-    std::cout << "Signal: " << signum << std::endl;
+    std::cout << "signal: " << signum << std::endl;
     auto pdfs = getOpenedPdfs();
     if (pdfs.size() > 0) {
         // store and close session
         intHandler(SIGINT);
     } else {
         // fast reopen
-        fastReopen = true;
+        auto pdfs = logs[idx];
+        std::cout << "fast reopen:\n[[[" << pdfs << "]]]" << std::endl;
+        launchEvince(pdfs);
     }
 }
 
@@ -170,17 +190,17 @@ void detectAndKill() {
                 kill(v, SIGTERM);
             }
         }
+        std::cout << "exit: " << thisPid << std::endl;
         exit(0);
     }
-    return;
 }
 
 int main() {
-    detectAndKill();
     signal(SIGINT, intHandler);
     signal(SIGTERM, termHandler);
+    detectAndKill();
     auto pdfs = restore(logData);
-    auto fut = std::async(std::launch::async, launchEvince, pdfs);
+    launchEvince(pdfs);
     log(timeOut, logData, std::move(pdfs));
     return 0;
 }

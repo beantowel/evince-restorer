@@ -9,6 +9,6 @@ $(SRC): $(SRC).cpp
 install:
 	cp $(TEMPLATE) $(DESKTOP)
 	echo "Icon=`pwd`/evince-restorer.png" >> $(DESKTOP)
-	echo "Exec=bash -c \"cd `pwd` && `pwd`/$(SRC)\"" >> $(DESKTOP)
+	echo "Exec=bash -c \"cd `pwd` && `pwd`/$(SRC) >> /tmp/evince-restorer.log\"" >> $(DESKTOP)
 	sudo chown ${USER}:${USER} $(DESKTOP)
 	chmod +x $(DESKTOP)
