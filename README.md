@@ -27,4 +27,5 @@ compile the source file and install as a ubuntu application:
 $ make && make install
 ```
 
-then you can find the restorer in launcher by the name 'evince-restorer'.
+then you can find the restorer in launcher by the name 'Restore Document Viewer
+Sessions'.
