@@ -109,6 +109,7 @@ void launchEvince(std::string pdfs) {
         system("evince &");
         std::cout << "empty session" << std::endl;
     } else {
+        replaceAll(pdfs, "\'", "\'\"\'\"\'");
         replaceAll(pdfs, "\n", "\' & evince \'");
         pdfs = "evince \'" + pdfs + "\' &";
         std::cout << "calling:\n" << pdfs << std::endl;
